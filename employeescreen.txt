@@ -1,0 +1,281 @@
+
+
+--------------- backend -------------------------
+
+server.js 
+
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(express.json());
+app.use(cors());
+
+// Connect to MongoDB (Remove deprecated options)
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch(err => console.error("❌ MongoDB connection error:", err));
+
+// Routes
+const employeeRoutes = require('./routes/employeeRoutes');
+app.use('/api/employees', employeeRoutes);
+
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+----------------------
+emplpyeeRoutes.js
+
+const express = require('express');
+const Employee = require('../models/Employee');
+const router = express.Router();
+
+router.post('/add', async (req, res) => {
+    try {
+      // Check if request body has all required fields
+      const { employeeName, email, phone, pincode, place, gender, dob } = req.body;
+  
+      if (!employeeName || !email || !phone || !pincode || !place || !gender || !dob) {
+        return res.status(400).json({ error: 'All fields are required.' });
+      }
+  
+      // Create new employee
+      const newEmployee = new Employee(req.body);
+      await newEmployee.save();
+  
+      res.status(201).json({ message: 'Employee created successfully', employeeId: newEmployee.employeeId });
+  
+    } catch (error) {
+      console.error('Error adding employee:', error);
+      res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+  });
+  
+  module.exports = router;
+
+// ✅ Get All Employees
+router.get('/all', async (req, res) => {
+  try {
+    const employees = await Employee.find().sort({ employeeId: 1 });
+    res.json(employees);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;
+
+----------------
+counter.js 
+
+const mongoose = require('mongoose');
+
+const CounterSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true }, // "employee"
+  value: { type: Number, required: true, default: 0 }
+});
+
+module.exports = mongoose.model('Counter', CounterSchema);
+ 
+--------------------------------------
+employee.js 
+
+const mongoose = require('mongoose');
+const Counter = require('../models/counter'); // Import the Counter model
+
+const EmployeeSchema = new mongoose.Schema({
+    employeeId: { type: String, unique: true }, // Auto-generated
+    employeeName: { type: String, required: true }, // Required
+    email: { type: String, required: true }, // Required
+    phone: { type: String, required: true }, // Required
+    pincode: { type: String }, // Optional
+    place: { type: String }, // Optional
+    gender: { type: String }, // Optional
+    dob: { type: Date } // Optional
+  });
+
+// 🔹 Auto-generate employeeId before saving
+EmployeeSchema.pre('save', async function (next) {
+  try {
+    if (!this.employeeId) {
+      const counter = await Counter.findOneAndUpdate(
+        { name: 'employee' },
+        { $inc: { value: 1 } }, // Increment value by 1
+        { new: true, upsert: true } // Create if not exists
+      );
+      this.employeeId = `EMP_${String(counter.value).padStart(4, '0')}`;
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+module.exports = mongoose.model('Employee', EmployeeSchema);
+
+---------
+
+.env 
+
+MONGO_URI=mongodb://localhost:27017/employeesDB 
+
+
+
+
+---------------------  frontend 
+
+emplpyee.jsx 
+
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const Employee = () => {
+  const [employeeName, setEmployeeName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [place, setPlace] = useState('');
+  const [gender, setGender] = useState('');
+  const [dob, setDob] = useState('');
+  const [errors, setErrors] = useState({});
+
+  const handleNameChange = (e) =>{
+    const name = e.target.value;
+
+    if (/^[a-zA-Z]*$/.test(name)) {
+      setEmployeeName(name);
+      setErrors((prev)=>({...prev,name :''}));
+      
+    }else{
+      setErrors((prev)=>({...prev,name :'special characters not allowed '}));
+    }
+  };
+
+  const handleEmailChange = (e)=>{
+    const emailValue = e.target.value;
+    setEmail(emailValue);
+    const emailRegex =/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-z]{2,}$/;
+    if (!emailRegex.test(emailValue)) {
+      setErrors((prev)=>({...prev,email:'invaild email formate'}));
+      
+    } else {
+      setErrors((prev)=>({...prev,email:''}));
+    }
+  };
+
+  const handlePhoneChange = (e)=>{
+    const phoneValue= e.target.value;
+    if (/^[0-9]*$/.test(phoneValue)) {
+      setPhone(phoneValue);
+      const phoneRegex =/^(7[8-9]|8[0-9]|9[0-9])[0-9]{8}$/;
+      if (!phoneRegex.test(phoneValue)) {
+        setErrors((prev)=>({...prev,phone:'invalid  mobile number'}))
+        
+      } else {
+        setErrors((prev)=>({...prev,phone:''}))
+      }
+      
+    } else {
+      setErrors((prev)=>({...prev,phone:'enter numbers only '}))
+    }
+  };
+
+  const handlePincodeChange = (e)=>{
+    const pincodeValue = e.target.value;
+
+    if (/^[0-9]*$/.test(pincodeValue)) {
+      setPincode(pincodeValue);
+
+      if (pincodeValue.length === 6) {
+        setErrors((prev)=>({...prev,pincode:''}))
+        
+      } else {
+        setErrors((prev)=>({...prev,pincode:'enter exact 6 digits number '}))
+      }
+      
+    } else {
+      setErrors((prev)=>({...prev,pincode:'only the numbers are allowed  '}))
+    }
+  }
+
+  // ✅ Form Submit Handler
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+  
+    if (!employeeName || !email || !phone || !pincode || !place || !gender || !dob) {
+      alert('Please fill all fields correctly.');
+      return;
+    }
+  
+    const employeeData = { employeeName, email, phone, pincode, place, gender, dob };
+  
+    try {
+      const response = await axios.post('http://localhost:5000/api/employees/add', employeeData);
+      alert(`Employee Created! ID: ${response.data.employeeId}`);
+      handleCancel();
+    } catch (error) {
+      console.error('Error:', error);
+      alert(error.response?.data?.error || 'Something went wrong.');
+    }
+  };
+
+  // ✅ Reset Form
+  const handleCancel = () => {
+    setEmployeeName('');
+    setEmail('');
+    setPhone('');
+    setPincode('');
+    setPlace('');
+    setGender('');
+    setDob('');
+    setErrors({});
+  };
+
+  return (
+    <div>
+      <h2 className="text-xl font-bold mb-4">Employee Details</h2>
+      <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-8">
+        <div>
+          <input type="text" value={employeeName} onChange={handleNameChange} placeholder="Employee Name" className="p-2 border rounded w-full" />
+          {errors.name && <p className="text-red-500 text-sm">{errors.name}</p>}
+        </div>
+        <div>
+          <input type="email" value={email} onChange={handleEmailChange} placeholder="Email" className="p-2 border rounded w-full" />
+          {errors.email && <p className="text-red-500 text-sm">{errors.email}</p>}
+        </div>
+        <div>
+          <input type="text" value={phone} onChange={handlePhoneChange} placeholder="Phone Number" className="p-2 border rounded w-full" />
+          {errors.phone && <p className="text-red-500 text-sm">{errors.phone}</p>}
+        </div>
+        <div>
+          <input type="text" value={pincode} onChange={handlePincodeChange} placeholder="Pincode" className="p-2 border rounded w-full" />
+          {errors.pincode && <p className="text-red-500 text-sm">{errors.pincode}</p>}
+        </div>
+        <input type="text" value={place} onChange={(e) => setPlace(e.target.value)} placeholder="Place" className="p-2 border rounded w-full" />
+        <div className="flex items-center space-x-4">
+          <label>
+            <input type="radio" name="gender" value="Male" checked={gender === "Male"} onChange={(e) => setGender(e.target.value)} /> Male
+          </label>
+          <label>
+            <input type="radio" name="gender" value="Female" checked={gender === "Female"} onChange={(e) => setGender(e.target.value)} /> Female
+          </label>
+        </div>
+        <input type="date" value={dob} onChange={(e) => setDob(e.target.value)} className="p-2 border rounded w-full" />
+        <div className="col-span-2 flex justify-between">
+          <button type="submit" className="w-1/2 p-2 bg-blue-500 text-white rounded hover:bg-blue-600">Save</button>
+          <button type="button" onClick={handleCancel} className="w-1/2 p-2 bg-gray-400 text-white rounded hover:bg-gray-500 ml-2">Cancel</button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default Employee;
+ 
+
+
+
